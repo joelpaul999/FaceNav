@@ -2,8 +2,7 @@
  False,
  False,
  True,
- 'D:\\SuperVision\\Eternal '
- '2.0\\faceenv3.0\\lib\\site-packages\\PyInstaller\\bootloader\\images\\icon-windowed.ico',
+ ['D:\\SuperVision\\Eternal 2.0\\FaceNav.ico'],
  None,
  False,
  False,
@@ -82,7 +81,7 @@
  [],
  False,
  False,
- 1773068287,
+ 1773072696,
  [('runw.exe',
    'D:\\SuperVision\\Eternal '
    '2.0\\faceenv3.0\\lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\runw.exe',
