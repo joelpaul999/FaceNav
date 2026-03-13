@@ -2,7 +2,7 @@
   "sensitivity": 2.5,
   "smoothing": 0.2,
   "eye_thresh": 0.2,
-  "smile_thresh": 0.3,
+  "smile_thresh": 0.02,
   "brow_thresh": 0.06,
   "mapping": {
     "Left Wink": "Left Click",

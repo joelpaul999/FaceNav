@@ -101,26 +101,16 @@ def ear(lm, idx):
     return (v1 + v2) / (2.0 * h + 1e-6)
 
 def smile_ratio(lm):
-    # Mouth corners (left=61, right=291), upper-lip centre=13, lower-lip centre=14
-    # Mid-point between the two lip centres = vertical midline of mouth
-    lc = np.array([lm[61].x,  lm[61].y])   # left corner
-    rc = np.array([lm[291].x, lm[291].y])  # right corner
-    ul = np.array([lm[13].x,  lm[13].y])   # upper lip centre
-    ll = np.array([lm[14].x,  lm[14].y])   # lower lip centre
-    mid_y = (ul[1] + ll[1]) / 2.0          # vertical mid of mouth
-
-    # Corner lift: how much each corner rises ABOVE the mouth midline (positive = up)
-    left_lift  = mid_y - lc[1]   # positive when corner is above midline
-    right_lift = mid_y - rc[1]
-    corner_lift = (left_lift + right_lift) / 2.0  # normalised to face coords (0-1)
-
-    # Mouth width/height ratio as secondary signal
-    mw = np.linalg.norm(rc - lc)
-    mh = np.linalg.norm(ul - ll) + 1e-6
-
-    # Combined score: corner lift is the primary discriminator
-    # Scaled so a genuine smile produces a value above ~0.55
-    return corner_lift * 80 + (mw / mh) * 0.1
+    # Mouth width (landmarks 61, 291) normalised by the outer eye-corner distance
+    # (landmarks 33, 263 — already used by EAR, so no new landmark dependencies).
+    # Dividing by face width instead of mouth height eliminates the division-by-near-zero
+    # problem that caused constant false positives when lips are closed at rest.
+    # At neutral: ~0.38-0.44.  Genuine smile: ~0.50-0.60+.
+    mw = np.linalg.norm(
+        np.array([lm[61].x, lm[61].y]) - np.array([lm[291].x, lm[291].y]))
+    fw = np.linalg.norm(
+        np.array([lm[33].x,  lm[33].y])  - np.array([lm[263].x, lm[263].y]))
+    return mw / (fw + 1e-6)
 
 def brow_raise_ratio(lm):
     l = abs(lm[L_BROW_IDX[0]].y - lm[L_BROW_IDX[1]].y)
@@ -180,8 +170,10 @@ class FaceNavApp:
         self.running = False
         self.paused  = False
 
-        self.calibrating   = True
-        self.calib_samples = []
+        self.calibrating         = True
+        self.calib_samples       = []
+        self.calib_smile_samples = []  # neutral smile scores during calibration
+        self.smile_baseline      = None  # personal neutral baseline
         self.origin_x = self.origin_y = None
         self.smooth_x  = screen_w // 2
         self.smooth_y  = screen_h // 2
@@ -190,7 +182,7 @@ class FaceNavApp:
         self.sensitivity  = tk.DoubleVar(value=2.5)
         self.smoothing    = tk.DoubleVar(value=0.2)
         self.eye_thresh   = tk.DoubleVar(value=0.20)
-        self.smile_thresh = tk.DoubleVar(value=0.55)
+        self.smile_thresh = tk.DoubleVar(value=0.08)
         self.brow_thresh  = tk.DoubleVar(value=0.06)
         self.mapping      = {g: tk.StringVar(value=a) for g, a in DEFAULT_MAPPING.items()}
         self.cooldowns    = {g: 0 for g in DEFAULT_MAPPING}
@@ -218,7 +210,7 @@ class FaceNavApp:
             self.sensitivity.set(s.get("sensitivity",  2.5))
             self.smoothing.set(s.get("smoothing",      0.2))
             self.eye_thresh.set(s.get("eye_thresh",    0.20))
-            self.smile_thresh.set(s.get("smile_thresh",0.55))
+            self.smile_thresh.set(s.get("smile_thresh",0.08))
             self.brow_thresh.set(s.get("brow_thresh",  0.06))
             for g, a in s.get("mapping", {}).items():
                 if g in self.mapping: self.mapping[g].set(a)
@@ -453,8 +445,8 @@ class FaceNavApp:
         sliders = [
             ("EYE BLINK THRESHOLD",  self.eye_thresh,   0.05, 0.40, C["cyan"],
              "EAR value below which eye is considered closed"),
-            ("SMILE SENSITIVITY",    self.smile_thresh,  0.20, 1.20, C["purple"],
-             "Corner-lift score required to detect a smile — raise if triggering at rest"),
+            ("SMILE SENSITIVITY",    self.smile_thresh,  0.02, 0.20, C["purple"],
+             "Margin above calibrated neutral — raise if triggering without smiling"),
             ("BROW RAISE THRESHOLD", self.brow_thresh,   0.02, 0.15, C["yellow"],
              "Vertical brow-to-eye distance for eyebrow raise"),
             ("CURSOR SENSITIVITY",   self.sensitivity,   1.0,  8.0,  C["green"],
@@ -614,18 +606,22 @@ class FaceNavApp:
                 # Calibration
                 if self.calibrating:
                     self.calib_samples.append((nx, ny))
+                    self.calib_smile_samples.append(smile_ratio(lm))
                     pct = int(len(self.calib_samples) / CALIB_FRAMES * 100)
                     self._calib_pct = pct
                     self.calib_fill.config(width=int(480 * pct / 100))
                     self.calib_status.config(
-                        text=f"  ◌  CALIBRATING  {pct}%  —  HOLD STILL",
+                        text=f"  ◌  CALIBRATING  {pct}%  —  KEEP NEUTRAL",
                         fg=C["yellow"])
-                    cv2.putText(frame, f"CALIBRATING  {pct}%",
+                    cv2.putText(frame, f"CALIBRATING  {pct}%  — KEEP NEUTRAL",
                                 (12, 38), cv2.FONT_HERSHEY_SIMPLEX,
                                 0.75, (0, 229, 255), 2)
                     if len(self.calib_samples) >= CALIB_FRAMES:
                         self.origin_x = np.mean([s[0] for s in self.calib_samples])
                         self.origin_y = np.mean([s[1] for s in self.calib_samples])
+                        # Personal smile baseline: mean + 1.5 std of neutral samples
+                        sm = np.array(self.calib_smile_samples)
+                        self.smile_baseline = float(np.mean(sm) + 1.5 * np.std(sm))
                         self.calibrating = False
                         self.calib_fill.config(bg=C["green"])
                         self.calib_status.config(
@@ -646,10 +642,17 @@ class FaceNavApp:
                     r_closed  = r_ear_v < et
                     both_shut = l_closed and r_closed
 
+                    # Smile: fire only when normalised mouth width exceeds the
+                    # personal neutral baseline PLUS the slider margin.
+                    # Neutral mw/face_w ~ 0.38-0.44; smile ~ 0.50-0.60+.
+                    # Slider (0.02-0.20) is the required delta above baseline.
+                    baseline     = self.smile_baseline if self.smile_baseline is not None else 1.0
+                    smile_active = smile_v > (baseline + st)
+
                     gestures = {
                         "Left Wink":        l_closed and not both_shut,
                         "Right Wink":       r_closed and not both_shut,
-                        "Smile":            smile_v > st,
+                        "Smile":            smile_active,
                         "Raise Eyebrows":   brow_v  > bt,
                         "Both Eyes Closed": both_shut,
                     }
@@ -766,11 +769,13 @@ class FaceNavApp:
             self._set_status("TRACKING", C["green"], C["green_dim"], C["green"])
 
     def _recalibrate(self):
-        self.calibrating = True
-        self.calib_samples = []
+        self.calibrating         = True
+        self.calib_samples       = []
+        self.calib_smile_samples = []
+        self.smile_baseline      = None
         self.calib_fill.config(bg=C["yellow"], width=0)
         self.calib_status.config(
-            text="  ◌  RECALIBRATING  —  HOLD STILL",
+            text="  ◌  RECALIBRATING  —  KEEP NEUTRAL",
             fg=C["yellow"])
 
     def _set_status(self, text, fg, bg, border):
