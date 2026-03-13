@@ -1,14 +1,14 @@
 {
-  "sensitivity": 2.5,
-  "smoothing": 0.2,
-  "eye_thresh": 0.2,
+  "sensitivity": 5.01,
+  "smoothing": 0.37,
+  "eye_thresh": 0.1,
   "smile_thresh": 0.3,
-  "brow_thresh": 0.06,
+  "brow_thresh": 0.04,
   "mapping": {
     "Left Wink": "Left Click",
     "Right Wink": "Right Click",
-    "Smile": "Double Click",
-    "Raise Eyebrows": "Scroll Up",
+    "Smile": "Nothing",
+    "Raise Eyebrows": "Double Click",
     "Both Eyes Closed": "Pause / Resume Mouse"
   }
 }
