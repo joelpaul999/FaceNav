@@ -66,5 +66,3 @@ python FaceNav_6.py
 - The app processes webcam frames locally and saves screenshots only when the configured gesture action triggers them.
 - Use responsibly and be mindful of privacy when running webcams.
 
----
-Created for quick setup and testing. If you want, I can also generate a `setup.bat` for Windows to automate venv creation and install.
